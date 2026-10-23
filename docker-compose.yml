@@ -6,10 +6,25 @@
 #
 # Las variables se toman de .env (copiá .env.example).
 services:
+  # Docker crea el volumen nuevo como root, y la app corre como UID 65532 y no
+  # puede escribir ahi. Este contenedor arregla el dueno y termina; corre en
+  # cada `up` y es inofensivo cuando el permiso ya esta bien.
+  datos:
+    image: busybox:1.36
+    container_name: reelmaker-datos
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /data && chown -R 65532:65532 /data && chmod 700 /data"]
+    volumes:
+      - reelmaker-datos:/data
+    restart: "no"
+
   reelmaker:
     image: ${REELMAKER_IMAGE:-ghcr.io/pel-matiasvaldivia/reelmaker:latest}
     container_name: reelmaker
     restart: unless-stopped
+    depends_on:
+      datos:
+        condition: service_completed_successfully
     ports:
       - "${REELMAKER_PORT:-8080}:8080"
     environment:

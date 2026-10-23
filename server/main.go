@@ -51,6 +51,10 @@ func main() {
 
 	alm, err := AbrirAlmacen(*datos)
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			log.Printf("el proceso corre como uid %d y no puede escribir en %s", os.Getuid(), *datos)
+			log.Printf("arreglalo con: docker run --rm -v <volumen>:/data busybox chown -R 65532:65532 /data")
+		}
 		log.Fatalf("no pude abrir el almacen de cuentas: %v", err)
 	}
 	if err := SembrarAdmin(alm, os.Getenv("REELMAKER_ADMIN_USER"), os.Getenv("REELMAKER_ADMIN_PASSWORD")); err != nil {

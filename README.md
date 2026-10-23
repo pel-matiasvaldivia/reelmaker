@@ -126,6 +126,31 @@ docker run --rm -p 8080:8080 reelmaker:local
 
 `app/index.html` es un archivo único sin dependencias de build. El tramo entre los marcadores `artifact:start` y `artifact:end` es el que se publica como artifact en claude.ai; `tools/make-artifact.sh` lo extrae.
 
+## Si algo falla
+
+**El contenedor reinicia en bucle con `permission denied` sobre `/data/usuarios.json.tmp`.** El volumen quedó como `root` y la app corre como UID 65532. El servicio `datos` del compose lo arregla antes de cada arranque; si venís de una versión anterior del compose, corregilo una vez a mano:
+
+```sh
+docker volume ls | grep datos
+docker run --rm -v reelmaker_reelmaker-datos:/data busybox chown -R 65532:65532 /data
+docker compose up -d
+```
+
+**Perdiste la contraseña del administrador.** No hay recuperación por mail. Si hay otro admin, que te la resetee desde `/admin`. Si no, borrá el volumen y empezá de cero (se pierden todas las cuentas):
+
+```sh
+docker compose down
+docker volume rm reelmaker_reelmaker-datos
+docker compose up -d
+```
+
+**Querés ver quién tiene acceso sin entrar al panel:**
+
+```sh
+docker run --rm -v reelmaker_reelmaker-datos:/data busybox \
+  sh -c 'cat /data/usuarios.json' | jq '.usuarios[] | {usuario,rol,activo}'
+```
+
 ## Límites conocidos
 
 - La grabación es en tiempo real: un reel de 20 segundos tarda 20 segundos y hay que dejar la pestaña visible.

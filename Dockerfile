@@ -10,9 +10,9 @@ COPY server/go.mod ./
 COPY server/*.go ./
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/reelmaker .
-# Directorio de datos vacio con el dueno correcto: cuando Docker crea el volumen
-# por primera vez, copia estos permisos, y el contenedor puede escribir ahi
-# aunque el resto del filesystem este en modo lectura.
+# Directorio de datos vacio con el dueno correcto. Ojo: que el volumen herede
+# estos permisos no esta garantizado en todas las versiones de Docker, por eso
+# el compose trae ademas un contenedor que ajusta el dueno antes de arrancar.
 RUN mkdir -p /vacio/data && chown -R 65532:65532 /vacio/data
 
 # Imagen final: solo el binario estatico, los archivos del sitio y el directorio de datos.
@@ -22,7 +22,7 @@ LABEL org.opencontainers.image.title="Reel Refurb" \
       org.opencontainers.image.source="https://github.com/pel-matiasvaldivia/reelmaker" \
       org.opencontainers.image.licenses="MIT"
 COPY --from=build /out/reelmaker /reelmaker
-COPY --from=build /vacio/data /data
+COPY --from=build --chown=65532:65532 /vacio/ /
 COPY app/ /srv/
 USER 65532:65532
 EXPOSE 8080
