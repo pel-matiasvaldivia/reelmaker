@@ -15,7 +15,31 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: server/go.mod
+
+      - name: Revisar formato
+        run: test -z "$(gofmt -l server)" || { gofmt -l server; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+        working-directory: server
+
+      - name: Pruebas
+        run: go test ./...
+        working-directory: server
+
   imagen:
+    needs: pruebas
     runs-on: ubuntu-latest
     permissions:
       contents: read

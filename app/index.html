@@ -49,6 +49,9 @@ header.top{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-con
 header.top h1{font-size:clamp(28px,5vw,42px);font-weight:900;letter-spacing:-.02em;line-height:1}
 header.top p{margin:6px 0 0;color:var(--muted);max-width:52ch}
 .sello{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.sesion{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.sesion a,.sesion button{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:4px 10px;cursor:pointer;text-decoration:none}
+.sesion[hidden]{display:none!important}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:28px;align-items:start}
 @media (max-width:880px){.grid{grid-template-columns:minmax(0,1fr)}}
 section.bloque{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:18px}
@@ -113,7 +116,10 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;color:v
       <h1>Reel Refurb</h1>
       <p>Cargá las fotos de uno o varios equipos refurbished y bajá un video vertical listo para TikTok, reels de Instagram y estado de WhatsApp.</p>
     </div>
-    <div class="sello" id="sello">1080 × 1920 · 30 fps</div>
+    <div class="fila" style="justify-content:flex-end">
+      <span class="sello" id="sello">1080 × 1920 · 30 fps</span>
+      <span class="sesion" id="sesion" hidden></span>
+    </div>
   </header>
 
   <div class="grid">
@@ -1193,6 +1199,34 @@ aplicarFormato();
 aplicarModo();
 seleccionar();
 if(document.fonts && document.fonts.ready) document.fonts.ready.then(repintar);
+
+/* ---------- barra de sesion: solo aparece en la version con cuentas ---------- */
+(async function(){
+  var caja = $("sesion");
+  var u;
+  try{
+    var r = await fetch("/api/me", {headers:{"X-Reelmaker":"1"}});
+    if(!r.ok) return;
+    u = (await r.json()).usuario;
+    if(!u) return;
+  }catch(e){ return; } // abierta como archivo local o sin servidor de cuentas
+  var quien = document.createElement("span");
+  quien.textContent = u.usuario;
+  caja.appendChild(quien);
+  if(u.rol === "admin"){
+    var a = document.createElement("a");
+    a.href = "/admin"; a.textContent = "Cuentas";
+    caja.appendChild(a);
+  }
+  var salir = document.createElement("button");
+  salir.type = "button"; salir.textContent = "Salir";
+  salir.onclick = async function(){
+    try{ await fetch("/api/logout", {method:"POST", headers:{"X-Reelmaker":"1"}}); }catch(e){}
+    location.replace("/login");
+  };
+  caja.appendChild(salir);
+  caja.hidden = false;
+})();
 })();
 </script>
 <!-- artifact:end -->

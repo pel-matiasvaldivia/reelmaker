@@ -2,6 +2,7 @@
 #
 #   docker compose pull && docker compose up -d        → solo la app, en el puerto 8080
 #   docker compose --profile tls up -d                 → ademas Caddy con HTTPS automatico
+#   docker compose logs reelmaker | grep "primer ingreso"   → credenciales del primer admin
 #
 # Las variables se toman de .env (copiá .env.example).
 services:
@@ -11,6 +12,17 @@ services:
     restart: unless-stopped
     ports:
       - "${REELMAKER_PORT:-8080}:8080"
+    environment:
+      # Cuenta inicial. Si no las definís, al primer arranque se genera una
+      # contraseña al azar y queda en los logs del contenedor, una sola vez.
+      REELMAKER_ADMIN_USER: ${REELMAKER_ADMIN_USER:-}
+      REELMAKER_ADMIN_PASSWORD: ${REELMAKER_ADMIN_PASSWORD:-}
+      # Opcional: clave para firmar las cookies de sesión. Si no la definís, se
+      # genera una y se guarda en el volumen de datos.
+      REELMAKER_SECRET: ${REELMAKER_SECRET:-}
+    volumes:
+      # Cuentas y clave de firma. Es el único lugar donde el contenedor escribe.
+      - reelmaker-datos:/data
     read_only: true
     cap_drop:
       - ALL
@@ -48,5 +60,6 @@ services:
       - caddy-config:/config
 
 volumes:
+  reelmaker-datos:
   caddy-data:
   caddy-config:

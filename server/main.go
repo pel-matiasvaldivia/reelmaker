@@ -1,4 +1,4 @@
-// Servidor estatico minimo para Reel Refurb.
+// Servidor de Reel Refurb: entrega la app y maneja las cuentas que pueden usarla.
 //
 // Sin dependencias externas: compila a un binario estatico que se copia a una
 // imagen `scratch`, de modo que la imagen publicada pesa poco mas que el
@@ -34,7 +34,8 @@ func env(clave, porDefecto string) string {
 
 func main() {
 	addr := flag.String("addr", env("REELMAKER_ADDR", ":8080"), "direccion de escucha")
-	root := flag.String("root", env("REELMAKER_ROOT", "/srv"), "directorio con los archivos del sitio")
+	raiz := flag.String("root", env("REELMAKER_ROOT", "/srv"), "directorio con los archivos del sitio")
+	datos := flag.String("data", env("REELMAKER_DATA", "/data"), "directorio donde se guardan las cuentas")
 	chequeo := flag.Bool("healthcheck", false, "consulta /healthz en la direccion de escucha y termina")
 	flag.Parse()
 
@@ -46,6 +47,88 @@ func main() {
 		return
 	}
 
+	registrarTiposMIME()
+
+	alm, err := AbrirAlmacen(*datos)
+	if err != nil {
+		log.Fatalf("no pude abrir el almacen de cuentas: %v", err)
+	}
+	if err := SembrarAdmin(alm, os.Getenv("REELMAKER_ADMIN_USER"), os.Getenv("REELMAKER_ADMIN_PASSWORD")); err != nil {
+		log.Fatalf("no pude crear la cuenta inicial: %v", err)
+	}
+	sesiones, err := CargarClave(*datos)
+	if err != nil {
+		log.Fatalf("no pude preparar la clave de sesiones: %v", err)
+	}
+
+	app := &App{
+		usuarios:  alm,
+		sesiones:  sesiones,
+		freno:     NuevoFreno(8, 15*time.Minute),
+		estaticos: servirEstaticos(*raiz),
+		raiz:      *raiz,
+	}
+
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           registrar(seguridad(comprimir(rutas(app)))),
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	ctx, parar := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer parar()
+
+	go func() {
+		log.Printf("reelmaker escuchando en %s (sitio %s, datos %s)", *addr, *raiz, *datos)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("no se pudo escuchar en %s: %v", *addr, err)
+		}
+	}()
+
+	<-ctx.Done()
+	cierre, cancelar := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelar()
+	if err := srv.Shutdown(cierre); err != nil {
+		log.Printf("cierre con error: %v", err)
+	}
+	log.Print("reelmaker detenido")
+}
+
+func rutas(app *App) http.Handler {
+	mux := http.NewServeMux()
+
+	// Publico.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "ok\n")
+	})
+	mux.HandleFunc("/login", app.paginaLogin)
+	// La hoja de estilos la necesita la propia pagina de ingreso.
+	mux.HandleFunc("/ui.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		app.servirArchivo(w, r, "ui.css")
+	})
+	mux.HandleFunc("/api/login", app.apiLogin)
+	mux.HandleFunc("/api/logout", app.apiLogout)
+	mux.HandleFunc("/api/me", app.apiYo)
+
+	// Con sesion.
+	mux.Handle("/api/password", app.requiereSesion(http.HandlerFunc(app.apiClavePropia)))
+
+	// Solo administradores.
+	mux.Handle("/admin", app.requiereAdmin(http.HandlerFunc(app.paginaAdmin)))
+	mux.Handle("/api/admin/usuarios", app.requiereAdmin(http.HandlerFunc(app.apiUsuarios)))
+	mux.Handle("/api/admin/usuarios/", app.requiereAdmin(http.HandlerFunc(app.apiUsuario)))
+
+	// La app y el resto de los archivos, detras de la sesion.
+	mux.Handle("/", app.requiereSesion(app.estaticos))
+	return mux
+}
+
+func registrarTiposMIME() {
 	// Los tipos MIME no vienen con la imagen scratch: se registran a mano.
 	for ext, tipo := range map[string]string{
 		".html":        "text/html; charset=utf-8",
@@ -63,46 +146,12 @@ func main() {
 	} {
 		_ = mime.AddExtensionType(ext, tipo)
 	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = io.WriteString(w, "ok\n")
-	})
-	mux.Handle("/", servirEstaticos(*root))
-
-	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           registrar(seguridad(comprimir(mux))),
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
-	ctx, parar := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer parar()
-
-	go func() {
-		log.Printf("reelmaker escuchando en %s (root %s)", *addr, *root)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("no se pudo escuchar en %s: %v", *addr, err)
-		}
-	}()
-
-	<-ctx.Done()
-	cierre, cancelar := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelar()
-	if err := srv.Shutdown(cierre); err != nil {
-		log.Printf("cierre con error: %v", err)
-	}
-	log.Print("reelmaker detenido")
 }
 
 // servirEstaticos entrega los archivos del sitio y cae en index.html para
 // cualquier ruta que no exista, para que la app funcione como una sola pagina.
-func servirEstaticos(root string) http.Handler {
-	archivos := http.Dir(root)
+func servirEstaticos(raiz string) http.Handler {
+	archivos := http.Dir(raiz)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -110,6 +159,15 @@ func servirEstaticos(root string) http.Handler {
 			return
 		}
 		limpio := path.Clean("/" + r.URL.Path)
+		// Las paginas con ruta propia no se sirven tambien por su nombre de archivo.
+		switch limpio {
+		case "/login.html":
+			http.Redirect(w, r, "/login", http.StatusMovedPermanently)
+			return
+		case "/admin.html":
+			http.Redirect(w, r, "/admin", http.StatusMovedPermanently)
+			return
+		}
 		destino := limpio
 		if strings.HasSuffix(limpio, "/") {
 			destino = path.Join(limpio, "index.html")

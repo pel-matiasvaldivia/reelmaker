@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Entrar · Reel Refurb</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;900&family=Asap:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/ui.css">
+<style>
+.centro{min-height:100svh;display:grid;place-items:center}
+.tarjeta{width:100%;max-width:380px}
+.marca{font-family:var(--display);font-weight:900;font-size:30px;letter-spacing:-.02em;line-height:1;margin-bottom:6px}
+.marca span{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap centro">
+  <div class="tarjeta">
+    <div class="marca">Reel<span>Refurb</span></div>
+    <p class="sello" style="margin:0 0 20px">Acceso al armador de reels</p>
+
+    <form class="bloque" id="forma" autocomplete="on">
+      <h2>Entrar</h2>
+      <p class="aviso mal" id="error" role="alert" hidden></p>
+      <div class="campos">
+        <div class="ancho">
+          <label for="usuario">Usuario</label>
+          <input id="usuario" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="ancho">
+          <label for="clave">Contraseña</label>
+          <input id="clave" name="password" type="password" autocomplete="current-password" required>
+        </div>
+      </div>
+      <div class="fila" style="margin-top:14px">
+        <button class="bt" id="enviar" type="submit">Entrar</button>
+      </div>
+      <p class="nota">Si no tenés cuenta, pedila a quien administra la herramienta.</p>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var forma = document.getElementById("forma");
+  var error = document.getElementById("error");
+  var enviar = document.getElementById("enviar");
+
+  function mostrar(msg){
+    error.textContent = msg;
+    error.hidden = !msg;
+  }
+  function destino(){
+    var p = new URLSearchParams(location.search).get("next");
+    // Solo rutas internas: nunca se redirige a otro sitio.
+    if(p && p.charAt(0) === "/" && p.charAt(1) !== "/") return p;
+    return "/";
+  }
+
+  forma.addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    mostrar("");
+    enviar.disabled = true;
+    enviar.textContent = "Entrando…";
+    try{
+      var r = await fetch("/api/login", {
+        method:"POST",
+        headers:{"Content-Type":"application/json", "X-Reelmaker":"1"},
+        body: JSON.stringify({
+          usuario: document.getElementById("usuario").value,
+          clave: document.getElementById("clave").value
+        })
+      });
+      var data = await r.json().catch(function(){ return {}; });
+      if(!r.ok){
+        mostrar(data.error || "No se pudo entrar.");
+        return;
+      }
+      location.replace(destino());
+      return;
+    }catch(e){
+      mostrar("No se pudo contactar al servidor. Probá de nuevo.");
+    }finally{
+      enviar.disabled = false;
+      enviar.textContent = "Entrar";
+    }
+  });
+  document.getElementById("usuario").focus();
+})();
+</script>
+</body>
+</html>

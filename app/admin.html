@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cuentas · Reel Refurb</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;900&family=Asap:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/ui.css">
+<style>
+.acciones{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.sub{display:grid;gap:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px}
+.sub[hidden]{display:none!important}
+.cuenta{font-weight:600}
+.cuenta small{display:block;font-weight:400;color:var(--muted)}
+@media (max-width:720px){
+  thead{display:none}
+  tr{display:grid;gap:6px;border-top:1px solid var(--line);padding:12px 0}
+  td{border:0;padding:0}
+  .acciones{justify-content:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="barra-sup">
+    <div>
+      <h1>Cuentas</h1>
+      <p>Quién puede entrar al armador de reels, y con qué permisos.</p>
+    </div>
+    <div class="fila">
+      <span class="sello" id="quien"></span>
+      <a class="bt sec chica" href="/" style="text-decoration:none;display:inline-block">Volver a la herramienta</a>
+      <button class="bt sec chica" id="salir" type="button">Salir</button>
+    </div>
+  </div>
+
+  <p class="aviso" id="mensaje" role="status" hidden></p>
+
+  <section class="bloque">
+    <h2>Cuentas con acceso</h2>
+    <div class="tabla-cont">
+      <table>
+        <thead>
+          <tr>
+            <th>Cuenta</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="cuerpo">
+          <tr><td colspan="5" class="mono" style="color:var(--muted)">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="nota">Deshabilitar una cuenta corta el acceso en el momento: las sesiones abiertas de esa persona dejan de valer en el siguiente pedido.</p>
+  </section>
+
+  <section class="bloque">
+    <h2>Nueva cuenta</h2>
+    <form id="formaNueva">
+      <div class="campos">
+        <div>
+          <label for="nUsuario">Usuario</label>
+          <input id="nUsuario" autocapitalize="none" spellcheck="false" required placeholder="martina">
+        </div>
+        <div>
+          <label for="nNombre">Nombre</label>
+          <input id="nNombre" placeholder="Martina Gómez">
+        </div>
+        <div>
+          <label for="nRol">Rol</label>
+          <select id="nRol">
+            <option value="editor">Editor · usa la herramienta</option>
+            <option value="admin">Administrador · además gestiona cuentas</option>
+          </select>
+        </div>
+        <div>
+          <label for="nClave">Contraseña inicial</label>
+          <input id="nClave" required minlength="10" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="fila" style="margin-top:14px">
+        <button class="bt" type="submit">Crear cuenta</button>
+        <button class="bt sec chica" type="button" id="generar">Generar contraseña</button>
+        <span class="mono" id="generada" style="color:var(--muted)"></span>
+      </div>
+      <p class="nota">Mínimo 10 caracteres. El usuario admite letras, números, punto, guion y guion bajo.</p>
+    </form>
+  </section>
+
+  <section class="bloque">
+    <h2>Mi contraseña</h2>
+    <form id="formaClave">
+      <div class="campos">
+        <div>
+          <label for="pActual">Contraseña actual</label>
+          <input id="pActual" type="password" autocomplete="current-password" required>
+        </div>
+        <div>
+          <label for="pNueva">Contraseña nueva</label>
+          <input id="pNueva" type="password" autocomplete="new-password" required minlength="10">
+        </div>
+      </div>
+      <div class="fila" style="margin-top:14px">
+        <button class="bt sec" type="submit">Cambiar mi contraseña</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var yo = null;
+  var $ = function(id){ return document.getElementById(id); };
+  var mensaje = $("mensaje");
+
+  function avisar(texto, clase){
+    mensaje.textContent = texto;
+    mensaje.className = "aviso" + (clase ? " " + clase : "");
+    mensaje.hidden = !texto;
+    if(texto) window.scrollTo({top:0, behavior:"smooth"});
+  }
+
+  async function api(ruta, opciones){
+    opciones = opciones || {};
+    opciones.headers = Object.assign({"X-Reelmaker":"1"}, opciones.headers || {});
+    if(opciones.body) opciones.headers["Content-Type"] = "application/json";
+    var r = await fetch(ruta, opciones);
+    if(r.status === 401){ location.replace("/login?next=" + encodeURIComponent("/admin")); throw new Error("sin sesion"); }
+    var data = await r.json().catch(function(){ return {}; });
+    if(!r.ok) throw new Error(data.error || ("error " + r.status));
+    return data;
+  }
+
+  function clave(largo){
+    var abc = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    var b = new Uint32Array(largo || 14);
+    crypto.getRandomValues(b);
+    return Array.prototype.map.call(b, function(v){ return abc[v % abc.length]; }).join("");
+  }
+
+  function fecha(iso){
+    if(!iso) return "—";
+    var d = new Date(iso);
+    return d.toLocaleDateString("es-AR", {day:"2-digit", month:"2-digit", year:"2-digit"}) +
+      " " + d.toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"});
+  }
+
+  function celda(texto, clase){
+    var td = document.createElement("td");
+    if(clase) td.className = clase;
+    if(texto !== undefined) td.textContent = texto;
+    return td;
+  }
+  function pill(texto, clase){
+    var s = document.createElement("span");
+    s.className = "pill " + (clase || "");
+    s.textContent = texto;
+    return s;
+  }
+  function boton(texto, clase, alHacer){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "bt chica " + (clase || "sec");
+    b.textContent = texto;
+    b.onclick = alHacer;
+    return b;
+  }
+
+  function filaUsuario(u){
+    var tr = document.createElement("tr");
+    if(yo && u.id === yo.id) tr.className = "yo";
+
+    var tdCuenta = celda(undefined, "cuenta");
+    tdCuenta.appendChild(document.createTextNode(u.usuario + (yo && u.id === yo.id ? " (vos)" : "")));
+    var small = document.createElement("small");
+    small.textContent = (u.nombre || "sin nombre") + " · creada el " + fecha(u.creado);
+    tdCuenta.appendChild(small);
+    tr.appendChild(tdCuenta);
+
+    var tdRol = celda();
+    tdRol.appendChild(pill(u.rol === "admin" ? "admin" : "editor", u.rol === "admin" ? "admin" : ""));
+    tr.appendChild(tdRol);
+
+    var tdEstado = celda();
+    tdEstado.appendChild(pill(u.activo ? "habilitada" : "deshabilitada", u.activo ? "on" : "off"));
+    tr.appendChild(tdEstado);
+
+    tr.appendChild(celda(fecha(u.ultimoIngreso), "mono"));
+
+    var tdAcc = celda(undefined, "acciones");
+    var propia = yo && u.id === yo.id;
+
+    if(!propia){
+      tdAcc.appendChild(boton(u.activo ? "Deshabilitar" : "Habilitar", u.activo ? "riesgo" : "", function(){
+        cambiar(u.id, {activo: !u.activo}, u.activo ? "Cuenta deshabilitada." : "Cuenta habilitada.");
+      }));
+      tdAcc.appendChild(boton(u.rol === "admin" ? "Pasar a editor" : "Hacer admin", "sec", function(){
+        cambiar(u.id, {rol: u.rol === "admin" ? "editor" : "admin"}, "Rol actualizado.");
+      }));
+    }
+    tdAcc.appendChild(boton("Cambiar clave", "sec", function(){ caja.hidden = !caja.hidden; }));
+    if(!propia){
+      tdAcc.appendChild(boton("Borrar", "riesgo", function(){ confirmar.hidden = !confirmar.hidden; }));
+    }
+    tr.appendChild(tdAcc);
+
+    // Sub-filas: cambio de clave y confirmacion de borrado, dentro de la misma fila.
+    var trExtra = document.createElement("tr");
+    var tdExtra = document.createElement("td");
+    tdExtra.colSpan = 5;
+    tdExtra.style.paddingTop = "0";
+
+    var caja = document.createElement("div");
+    caja.className = "sub"; caja.hidden = true;
+    var lbl = document.createElement("label");
+    lbl.textContent = "Contraseña nueva para " + u.usuario;
+    var inp = document.createElement("input");
+    inp.type = "text"; inp.minLength = 10; inp.autocomplete = "off";
+    var filaC = document.createElement("div");
+    filaC.className = "fila";
+    filaC.appendChild(boton("Guardar", "", function(){
+      if(inp.value.length < 10){ avisar("La contraseña necesita al menos 10 caracteres.", "mal"); return; }
+      cambiar(u.id, {clave: inp.value}, "Contraseña de " + u.usuario + " actualizada. Sus sesiones abiertas se cerraron.");
+    }));
+    filaC.appendChild(boton("Generar", "sec", function(){ inp.value = clave(14); inp.focus(); inp.select(); }));
+    caja.appendChild(lbl); caja.appendChild(inp); caja.appendChild(filaC);
+
+    var confirmar = document.createElement("div");
+    confirmar.className = "sub"; confirmar.hidden = true;
+    var txt = document.createElement("p");
+    txt.style.margin = "0";
+    txt.textContent = "Borrar la cuenta " + u.usuario + " es definitivo. Si solo querés cortarle el acceso, deshabilitala.";
+    var filaB = document.createElement("div");
+    filaB.className = "fila";
+    filaB.appendChild(boton("Borrar definitivamente", "riesgo", function(){
+      borrar(u.id, u.usuario);
+    }));
+    filaB.appendChild(boton("Cancelar", "sec", function(){ confirmar.hidden = true; }));
+    confirmar.appendChild(txt); confirmar.appendChild(filaB);
+
+    tdExtra.appendChild(caja); tdExtra.appendChild(confirmar);
+    trExtra.appendChild(tdExtra);
+    return [tr, trExtra];
+  }
+
+  async function cargar(){
+    try{
+      var data = await api("/api/admin/usuarios");
+      var cuerpo = $("cuerpo");
+      cuerpo.innerHTML = "";
+      data.usuarios.forEach(function(u){
+        filaUsuario(u).forEach(function(tr){ cuerpo.appendChild(tr); });
+      });
+    }catch(e){
+      avisar(e.message, "mal");
+    }
+  }
+
+  async function cambiar(id, cambios, exito){
+    try{
+      await api("/api/admin/usuarios/" + encodeURIComponent(id), {method:"PATCH", body: JSON.stringify(cambios)});
+      avisar(exito, "bien");
+      await cargar();
+    }catch(e){ avisar(e.message, "mal"); }
+  }
+  async function borrar(id, usuario){
+    try{
+      await api("/api/admin/usuarios/" + encodeURIComponent(id), {method:"DELETE"});
+      avisar("Cuenta " + usuario + " borrada.", "bien");
+      await cargar();
+    }catch(e){ avisar(e.message, "mal"); }
+  }
+
+  $("formaNueva").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    try{
+      var data = await api("/api/admin/usuarios", {method:"POST", body: JSON.stringify({
+        usuario: $("nUsuario").value,
+        nombre: $("nNombre").value,
+        rol: $("nRol").value,
+        clave: $("nClave").value
+      })});
+      avisar("Cuenta " + data.usuario.usuario + " creada. Pasale el usuario y la contraseña por un canal privado.", "bien");
+      $("formaNueva").reset();
+      $("generada").textContent = "";
+      await cargar();
+    }catch(e){ avisar(e.message, "mal"); }
+  });
+
+  $("generar").onclick = function(){
+    var c = clave(14);
+    $("nClave").value = c;
+    $("generada").textContent = c;
+  };
+
+  $("formaClave").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    try{
+      await api("/api/password", {method:"POST", body: JSON.stringify({
+        actual: $("pActual").value, nueva: $("pNueva").value
+      })});
+      avisar("Tu contraseña quedó cambiada.", "bien");
+      $("formaClave").reset();
+    }catch(e){ avisar(e.message, "mal"); }
+  });
+
+  $("salir").onclick = async function(){
+    try{ await api("/api/logout", {method:"POST"}); }catch(e){}
+    location.replace("/login");
+  };
+
+  (async function(){
+    try{
+      var data = await api("/api/me");
+      yo = data.usuario;
+      $("quien").textContent = yo.usuario + " · " + yo.rol;
+    }catch(e){ return; }
+    await cargar();
+  })();
+})();
+</script>
+</body>
+</html>
