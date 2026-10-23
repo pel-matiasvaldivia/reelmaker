@@ -1,0 +1,4 @@
+{$REELMAKER_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy reelmaker:8080
+}
